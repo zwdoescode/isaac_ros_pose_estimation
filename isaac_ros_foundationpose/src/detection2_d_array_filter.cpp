@@ -15,7 +15,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <vision_msgs/msg/detection2_d.hpp>
@@ -42,6 +47,8 @@ public:
     input_qos_{::isaac_ros::common::AddQosParameter(*this, "DEFAULT", "input_qos")},
     output_qos_{::isaac_ros::common::AddQosParameter(*this, "DEFAULT", "output_qos")},
     desired_class_id_(declare_parameter<std::string>("desired_class_id", "")),
+    detection_rank_(
+      static_cast<size_t>(std::max<int64_t>(0, declare_parameter<int>("detection_rank", 0)))),
     detection2_d_array_sub_{create_subscription<vision_msgs::msg::Detection2DArray>(
         "detection2_d_array", input_qos_,
         std::bind(&Detection2DArrayFilter::boundingBoxArrayCallback, this, std::placeholders::_1))},
@@ -50,30 +57,41 @@ public:
 
   void boundingBoxArrayCallback(const vision_msgs::msg::Detection2DArray::SharedPtr msg)
   {
-    // Find the detection bounding box with the highest confidence
-    float max_confidence = 0;
-    vision_msgs::msg::Detection2D max_confidence_detection;
-    // Iterate through the detections and find the one with the highest confidence
+    std::vector<std::pair<float, vision_msgs::msg::Detection2D>> ranked_detections;
     for (const auto & detection : msg->detections) {
-      // Iterate through all the hypotheses for this detection
-      // and find the one with the highest confidence
+      float best_score = 0.0F;
       for (const auto & result : detection.results) {
-        if (result.hypothesis.score > max_confidence && (desired_class_id_.empty() ||
+        if (result.hypothesis.score > best_score && (desired_class_id_.empty() ||
           desired_class_id_ == result.hypothesis.class_id))
         {
-          max_confidence = result.hypothesis.score;
-          max_confidence_detection = detection;
+          best_score = result.hypothesis.score;
         }
+      }
+      if (best_score > 0.0F) {
+        ranked_detections.emplace_back(best_score, detection);
       }
     }
 
-    // If no detection was found, return error
-    if (max_confidence == 0) {
+    if (ranked_detections.empty()) {
       RCLCPP_DEBUG(this->get_logger(), "No detection found with non-zero confidence");
       return;
     }
 
-    detection2_d_pub_->publish(max_confidence_detection);
+    std::sort(
+      ranked_detections.begin(), ranked_detections.end(),
+      [](const auto & lhs, const auto & rhs) {
+        return lhs.first > rhs.first;
+      });
+
+    if (detection_rank_ >= ranked_detections.size()) {
+      RCLCPP_DEBUG(
+        this->get_logger(),
+        "Detection rank %zu is out of range for %zu matching detections",
+        detection_rank_, ranked_detections.size());
+      return;
+    }
+
+    detection2_d_pub_->publish(ranked_detections[detection_rank_].second);
   }
 
 private:
@@ -82,6 +100,7 @@ private:
   rclcpp::QoS output_qos_;
 
   std::string desired_class_id_;
+  size_t detection_rank_;
   rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detection2_d_array_sub_;
   rclcpp::Publisher<vision_msgs::msg::Detection2D>::SharedPtr detection2_d_pub_;
 };

@@ -1,0 +1,26 @@
+# Example object list for multi_foundationpose.launch.py.
+#
+# Each entry starts one FoundationPose instance. When use_rtdetr:=True, each
+# desired_class_id is passed to Detection2DArrayFilter so each branch receives a
+# separate object mask from the shared RT-DETR detections. Leave desired_class_id
+# empty only when you intentionally want the highest-confidence detection.
+# detection_rank selects the Nth highest-confidence matching detection, which is
+# useful when several instances share the same class ID.
+#
+# Replace the mesh paths and class IDs with values for your model/detector.
+objects:
+  - name: mustard
+    namespace: mustard
+    mesh_file_path: /workspaces/isaac_ros-dev/isaac_ros_assets/isaac_ros_foundationpose/Mustard/textured_simple.obj
+    desired_class_id: ""
+    detection_rank: 0
+    tf_frame_name: fp_mustard
+    output_topic: output
+
+  - name: soup_can
+    namespace: soup_can
+    mesh_file_path: /workspaces/isaac_ros-dev/isaac_ros_assets/isaac_ros_foundationpose/soup_can/soup_can.obj
+    desired_class_id: ""
+    detection_rank: 1
+    tf_frame_name: fp_soup_can
+    output_topic: output
